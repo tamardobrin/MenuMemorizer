@@ -6,6 +6,7 @@
         <router-link :to="generateLink('/')">Home</router-link>
         <router-link :to="generateLink('/flashcards')">Flashcards</router-link>
         <router-link :to="generateLink('/quiz')">Quiz</router-link>
+        <router-link to="/menuOCR">📷 OCR Import</router-link>
       </nav>
     </header>
     <main>
