@@ -79,13 +79,21 @@ app.post("/menu/parse-ai", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "No text provided" });
 
-  const prompt = `Extract a list of menu items from the OCR text below. 
-Respond ONLY with a JSON array. Do NOT include any extra text.
+  const prompt = `Extract a structured list of menu items from the OCR text below.
 
-Each item should have:
+Split the menu into categories (like Starters, Main dishes, Pasta, Desserts) based on section headers.
+
+Each item must include:
 - name (required)
-- description (optional)
-- ingredients (optional)
+- price (number, if found)
+- description (optional, a short general summary or how it's prepared)
+- ingredients (optional, split into 3–6 core ingredients used, not general phrases)
+
+Avoid putting ingredients in the description. Parse ingredients from the text when available.
+If a dish mentions ingredients like "chicken, garlic, lemon", split them as ingredients.
+Only use description for prep style or presentation like "served over rice with sauce".
+
+Respond ONLY with a JSON array. No extra text.
 
 OCR text:
 """
@@ -163,7 +171,7 @@ app.post("/menu/upload", async (req, res) => {
 
     for (const item of items) {
       const { name, description, ingredients } = item;
-      const category = "Uncategorized"; 
+      const category = item.category || "Uncategorized";
       const price = 0; 
 
       const menuItem = await prisma.menuItem.create({

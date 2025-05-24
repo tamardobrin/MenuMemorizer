@@ -20,23 +20,28 @@
         </div>
 
         <div v-if="parsed.length">
-            <h3>🍽 Parsed Dishes & Ingredients</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Dish</th>
-                        <th>Description</th>
-                        <th>Ingredients</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="(item, i) in parsed" :key="i">
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.description }}</td>
-                        <td>{{ (item.ingredients || []).join(', ') }}</td>
-                    </tr>
-                </tbody>
-            </table>
+            <h3>🍽 Parsed Menu</h3>
+            <div v-for="(group, index) in parsed" :key="index" class="category-group">
+                <h4 class="category-title">{{ group.category }}</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Dish</th>
+                            <th>Description</th>
+                            <th>Ingredients</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(dish, i) in group.dishes || []" :key="i">
+                            <td>{{ dish.name }}</td>
+                            <td>{{ dish.description || '-' }}</td>
+                            <td>{{ (dish.ingredients || []).join(', ') }}</td>
+                            <td>{{ dish.price != null ? '₪' + dish.price : '-' }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
             <button @click="submitToBackend">💾 Save to DB</button>
         </div>
     </div>
@@ -95,7 +100,8 @@ export default {
             this.loading = true;
             try {
                 const res = await parseAI({ text: this.rawText });
-                this.parsed = res.data.items;
+                this.parsed = res.data.items || [];
+                console.log("Parsed categories:", this.parsed);
                 this.aiResponse = JSON.stringify(res.data.original, null, 2);
             } catch (e) {
                 console.error(e);
@@ -106,7 +112,11 @@ export default {
         },
         async submitToBackend() {
             try {
-                await menuUpload(this.parsed);
+                await menuUpload(parsed.flatMap(group => group.dishes.map(dish => ({
+                    ...dish,
+                    category: group.category
+                }))));
+
                 alert('Menu saved successfully!');
             } catch (e) {
                 alert('Failed to save to backend.');
@@ -151,5 +161,16 @@ button {
     margin: 0.5rem;
     padding: 0.5rem 1rem;
     font-weight: bold;
+}
+
+.category-group {
+    margin-bottom: 2rem;
+}
+
+.category-title {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #4caf50;
+    margin: 1rem 0 0.5rem;
 }
 </style>
