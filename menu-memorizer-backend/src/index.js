@@ -3,12 +3,23 @@ import bodyParser from 'body-parser';
 import { PrismaClient } from '@prisma/client';
 import cors from 'cors';
 import { OpenAI } from "openai";
+import vision from '@google-cloud/vision';
+import path from 'path';
+import fs from 'fs';
+
+const client = new vision.ImageAnnotatorClient({
+  keyFilename: path.join(process.cwd(), 'vision-key.json'),
+});
 
 const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' })); 
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 app.get("/categories", async (req, res) => {
   const categories = await prisma.menuItem.findMany({
@@ -64,52 +75,79 @@ app.post("/menu/:id/ingredients", async (req, res) => {
 });
 
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 app.post("/menu/parse-ai", async (req, res) => {
   const { text } = req.body;
-
   if (!text) return res.status(400).json({ error: "No text provided" });
 
-  const prompt = `You are a helpful assistant that parses restaurant menus.
-Given the following OCR'd menu text, extract a list of dishes.
-Each dish should include:
-- name
-- description (if available)
-- a list of ingredients
-Return a JSON array like this:
-[
-  {
-    "name": "Dish Name",
-    "description": "Description here",
-    "ingredients": ["ingredient1", "ingredient2"]
-  }
-]
+  const prompt = `Extract a list of menu items from the OCR text below. 
+Respond ONLY with a JSON array. Do NOT include any extra text.
 
-Text:
+Each item should have:
+- name (required)
+- description (optional)
+- ingredients (optional)
+
+OCR text:
 """
 ${text}
 """`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
     });
 
-    const responseText = completion.choices[0].message.content;
+    const responseText = completion.choices[0].message.content.trim();
+    console.log("GPT Response:\n", responseText);
 
     const jsonStart = responseText.indexOf("[");
-    const jsonString = responseText.slice(jsonStart);
-    const items = JSON.parse(jsonString);
+    const jsonEnd = responseText.lastIndexOf("]") + 1;
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error("Could not locate JSON array in GPT response.");
+    }
+    
+    const jsonString = responseText.slice(jsonStart, jsonEnd);
+    
+    let items;
+    try {
+      items = JSON.parse(jsonString);
+    } catch (err) {
+      console.log("GPT raw output:\n", responseText);
+      throw new Error("Invalid JSON in trimmed GPT output:\n" + jsonString);
+    }    
 
-    res.json({ items });
+    res.json({ items, original: responseText });
   } catch (err) {
-    console.error("AI parsing error:", err);
-    res.status(500).json({ error: "Failed to parse with AI" });
+    console.error("AI parsing error:\n", err.message);
+    res.status(500).json({
+      error: "Failed to parse with AI",
+      details: err.message,
+    });
+  }
+});
+
+app.post('/menu/ocr-google', async (req, res) => {
+  const { base64Image } = req.body;
+
+  if (!base64Image) {
+    return res.status(400).json({ error: 'No image provided' });
+  }
+
+  try {
+    const [result] = await client.documentTextDetection({
+      image: { content: base64Image },
+    });
+
+    const text = result.fullTextAnnotation?.text || '';
+    res.json({ text });
+  } catch (err) {
+    console.error('Vision OCR error:', err.message);
+    res.status(500).json({
+      error: 'Vision OCR failed',
+      details: err.message,
+    });
   }
 });
 

@@ -1,4 +1,4 @@
-// MenuOCR.vue - Upload menu image, extract text with Tesseract.js, and parse with optional GPT
+// Updated MenuOCR.vue - Improved prompt handling for AI parsing
 <template>
     <div class="ocr-container">
         <h2>📷 Upload Menu Image</h2>
@@ -12,6 +12,11 @@
             <pre>{{ rawText }}</pre>
             <button @click="parseText">🧪 Parse Locally</button>
             <button @click="parseWithAI">🧠 Use AI to Parse</button>
+        </div>
+
+        <div v-if="aiResponse">
+            <h3>Raw AI Response</h3>
+            <pre>{{ aiResponse }}</pre>
         </div>
 
         <div v-if="parsed.length">
@@ -28,19 +33,17 @@
                     <tr v-for="(item, i) in parsed" :key="i">
                         <td>{{ item.name }}</td>
                         <td>{{ item.description }}</td>
-                        <td>{{ item.ingredients.join(', ') }}</td>
+                        <td>{{ (item.ingredients || []).join(', ') }}</td>
                     </tr>
                 </tbody>
             </table>
-            <button @click="submitToBackend" :disabled="loading">
-                💾 Save to DB
-            </button>
+            <button @click="submitToBackend">💾 Save to DB</button>
         </div>
     </div>
 </template>
 
 <script>
-import { parseAI, menuUpload } from "../api";
+import { parseAI, menuUpload, googleOCR } from "../api";
 import Tesseract from 'tesseract.js';
 
 export default {
@@ -50,6 +53,7 @@ export default {
             loading: false,
             error: '',
             parsed: [],
+            aiResponse: '',
         };
     },
     methods: {
@@ -59,17 +63,21 @@ export default {
             this.loading = true;
             this.error = '';
 
-            Tesseract.recognize(file, 'eng')
-                .then(({ data: { text } }) => {
-                    this.rawText = text;
-                })
-                .catch(err => {
-                    this.error = 'Failed to read image.';
-                })
-                .finally(() => {
+            const reader = new FileReader();
+            reader.onload = async () => {
+                const base64 = reader.result.split(',')[1];
+                try {
+                    const res = await googleOCR(base64);
+                    this.rawText = res.data.text;
+                } catch (e) {
+                    this.error = 'Google Vision OCR failed.';
+                } finally {
                     this.loading = false;
-                });
+                }
+            };
+            reader.readAsDataURL(file);
         },
+
         parseText() {
             const lines = this.rawText.split('\n').filter(line => line.trim());
             this.parsed = lines.map(line => {
@@ -88,11 +96,11 @@ export default {
             try {
                 const res = await parseAI({ text: this.rawText });
                 this.parsed = res.data.items;
+                this.aiResponse = JSON.stringify(res.data.original, null, 2);
             } catch (e) {
                 console.error(e);
                 this.error = 'AI parsing failed.';
-            }
-            finally {
+            } finally {
                 this.loading = false;
             }
         },
